@@ -1,0 +1,29 @@
+rule all:
+    input:
+        "ancestral_intervals_theoretical.txt.gz",
+        "patchwork_vcf.vcf.gz"
+
+rule generate_ancestral_intervals:
+    output:
+        gzipped_file = "ancestral_intervals_theoretical.txt.gz"
+    shell:
+        """
+        python3 ancestral_intervals.py | bgzip > {output.gzipped_file}
+        """
+
+
+
+rule patch_vcf:
+    input:
+        intervals = "ancestral_intervals_theoretical.txt.gz",
+        original_vcf = "/home/projects/MAAG/msprime_deme/msprime/results/chrom1_500indi.vcf.gz"
+    output:
+        patched_vcf = "patchwork_vcf.vcf.gz"
+    shell:
+        """
+        python patch_vcf.py {input.original_vcf} {input.intervals} {output.patched_vcf}
+        """
+
+
+
+

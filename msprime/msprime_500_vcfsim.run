@@ -1,0 +1,2 @@
+#!/bin/bash
+nice -19 python3 msprime_500_vcfsim.py ../demes/OOA_KAR_extension_admix.yaml | bgzip -c > chrom1_500indi.vcf.gz
