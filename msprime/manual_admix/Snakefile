@@ -3,13 +3,14 @@ rule all:
         "ancestral_intervals_theoretical.txt.gz",
         "patchwork_vcf.vcf.gz"
 
-rule generate_ancestral_intervals:
+#rule generate_ancestral_intervals:
     output:
         gzipped_file = "ancestral_intervals_theoretical.txt.gz"
     shell:
         """
         python3 ancestral_intervals.py | bgzip > {output.gzipped_file}
         """
+
 
 
 

@@ -27,7 +27,7 @@ def generate_ancestral_haplotype_ids_with_suffixes():
     max_numbers = {"KAR": 200, "YRI": 150, "CEU": 50}
     expanded_ancestral_haplotype_id = []
     for key, max_num in max_numbers.items():
-        for i in range(1, max_num + 1):
+        for i in range(0, max_num):
             expanded_ancestral_haplotype_id.append(f"{key}#{i}_M")
             expanded_ancestral_haplotype_id.append(f"{key}#{i}_P")
     return expanded_ancestral_haplotype_id

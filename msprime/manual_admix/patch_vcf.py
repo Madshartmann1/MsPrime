@@ -3,6 +3,7 @@ import pandas as pd
 import gzip
 from tqdm import tqdm
 from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor
 
 def print_with_timestamp(message):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -108,6 +109,7 @@ def map_barcode_to_vcf_column(barcode):
 
 
 
+
 def process_vcf_intervals(vcf_df, intervals):
     """
     Processes the VCF DataFrame based on intervals, extracting and concatenating allele information
@@ -134,18 +136,22 @@ def process_vcf_intervals(vcf_df, intervals):
         # Use the mapping function to get the corresponding VCF column name
         vcf_col_name = map_barcode_to_vcf_column(barcode)
 
+
         # Initialize a list to hold alleles for this interval
         alleles_list = []
 
-
-        
         # Iterate through the filtered DataFrame and extract alleles
         for _, row in filtered_df.iterrows():
             alleles = row[vcf_col_name].split('|')
-            allele = alleles[0] if chrom == 'M' else alleles[1]
+            
+            # Determine lineage from barcode ('M' for maternal, 'P' for paternal)
+            lineage = 'M' if 'M' in barcode else 'P'
+            
+            # Choose allele based on lineage, not chrom
+            allele = alleles[0] if lineage == 'M' else alleles[1]
             alleles_list.append(allele)
-
-        
+    
+              
             # Accumulate alleles for both M and P data
         if individual not in alleles_temp[chrom]:
             alleles_temp[chrom][individual] = alleles_list
@@ -160,38 +166,39 @@ def process_vcf_intervals(vcf_df, intervals):
         # Concatenate M and P alleles
         concatenated_alleles = [f"{m}|{p}" for m, p in zip(m_alleles, p_alleles)]
         processed_alleles[individual] = concatenated_alleles
-         
+
     return processed_alleles
 
 
 
 
-def save_vcf_with_headers(vcf_df, processed_alleles, output_file):
-    # Use gzip.open for writing if output_file ends with '.gz'
+def save_vcf_with_headers(vcf_df, output_file):
     open_func = gzip.open if output_file.endswith('.gz') else open
-    with open_func(output_file, 'wt') as f:  # 'wt' mode for writing as text
-        # Write the VCF standard header lines (if any)
+    with open_func(output_file, 'wt') as f:
+        # Write the VCF standard header lines
         f.write("##fileformat=VCFv4.2\n")
-        f.write("##source=tskit 0.5.4")
-        f.write("##FILTER=<ID=PASS,Description=All filters passed>")
-        f.write("##contig=<ID=1,length=248387328>")
-        f.write("##FORMAT=<ID=GT,Number=1,Type=String,Description=Genotype>")
+        f.write("##source=tskit 0.5.4\n")
+        f.write("##FILTER=<ID=PASS,Description=All filters passed>\n")
+        f.write("##contig=<ID=1,length=248387328>\n")
+        f.write("##FORMAT=<ID=GT,Number=1,Type=String,Description=Genotype>\n")
         
-        # Write the hardcoded header for the first 9 columns
-        f.write('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT')
+        # Fixed VCF headers for the first 9 columns
+        fixed_headers = ['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT']
         
-        # Dynamically add headers for each processed allele column based on the keys in processed_alleles
-        for individual in processed_alleles.keys():
-            f.write(f'\t{individual}')
-        f.write('\n')
+        # Extracting additional headers (individual identifiers) and sorting them
+        additional_headers = [col for col in vcf_df.columns if col not in fixed_headers]
+        sorted_additional_headers = sorted(additional_headers, key=lambda x: int(x))  # Assuming identifiers are numeric
         
-        # Ensure the DataFrame has the correct columns before writing its contents
-        # This step is where you would adjust vcf_df to include the processed alleles
-        for individual, alleles in processed_alleles.items():
-            vcf_df[individual] = alleles
+        # Combine fixed headers with sorted additional headers
+        all_headers = fixed_headers + sorted_additional_headers
+        
+        # Write the full header line to the file
+        f.write('\t'.join(all_headers) + '\n')
         
         # Write the DataFrame content without including the index or the DataFrame's own headers
+        vcf_df = vcf_df[all_headers]  # Reorder DataFrame columns to match the header order
         vcf_df.to_csv(f, sep='\t', index=False, header=False)
+
 
 
 
@@ -201,27 +208,26 @@ def main(vcf_file_path, intervals_file_path, output_file_path):
     # Step 1: Read the VCF file
     vcf_df = read_vcf(vcf_file_path) 
 
-    # Step 2: Read intervals and process them
-    intervals = read_intervals(intervals_file_path)  
-    processed_alleles = process_vcf_intervals(vcf_df, intervals)  # process_vcf_intervals as M|P processing
+    # Step 2: Read intervals and process them in parallel
+    intervals = read_intervals(intervals_file_path)
+    processed_alleles = process_vcf_intervals(vcf_df, intervals)
 
+    
     # Step 3: Save the processed allele information
     # Extract the first 9 columns as they contain format-specific information
     vcf_base_df = vcf_df.iloc[:, :9]
     
-    # Manually set the first 9 columns' headers
-    vcf_base_df.columns = ['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT']
-
     # Append processed alleles as new columns
     for individual, alleles in processed_alleles.items():
         # Each individual's alleles are added as a new column
         # Ensure alleles list length matches the number of rows in vcf_base_df
         alleles += ['N/A'] * (len(vcf_base_df) - len(alleles))
         vcf_base_df[individual] = alleles
-    
+
+       
     # Example usage assumes `vcf_base_df` is your base DataFrame and `processed_alleles` is the dictionary with allele data
     print_with_timestamp("Printing the final VCF file")
-    save_vcf_with_headers(vcf_base_df, processed_alleles, output_file_path)
+    save_vcf_with_headers(vcf_base_df, output_file_path)
     print_with_timestamp("Done")
 
 
